@@ -1,0 +1,26 @@
+type SolanaPaySession {
+  solanaPayUrl: String!
+  recipient: String!
+  amount: Float!
+  reference: String!
+  label: String!
+  message: String!
+  memo: String!
+}
+
+type Query {
+  _: Boolean
+}
+
+type Mutation {
+  createSubscriptionPurchaseSession(
+    userId: ID!
+    purchaseType: String!
+  ): SolanaPaySession!
+
+  createTitlePurchaseSession(
+    userId: ID!
+    bookId: ID!
+    purchaseType: String!
+  ): SolanaPaySession!
+}
