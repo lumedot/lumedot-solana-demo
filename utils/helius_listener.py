@@ -51,12 +51,12 @@ class HeliusListener:
         self.heartbeat_task = None
 
     async def heartbeat(self, ws):
-        """Send periodic pings to keep the connection alive"""
+        """Send periodic pings"""
         while True:
             try:
                 await asyncio.sleep(HEARTBEAT_INTERVAL)
                 
-                # Check if received a pong lately
+                # Check pong
                 current_time = asyncio.get_event_loop().time()
                 if current_time - self.last_pong > HEARTBEAT_INTERVAL * 2:
                     log.warning("No pong received in %d seconds, connection may be dead", 
@@ -83,7 +83,7 @@ class HeliusListener:
                 break
 
     async def start(self):
-        """Start the WebSocket listener with auto-reconnection"""
+        """Start the WebSocket listener with auto-reconnect"""
         while True:
             try:
                 await self._connect_and_listen()
@@ -93,25 +93,25 @@ class HeliusListener:
                 await asyncio.sleep(5)
 
     async def _connect_and_listen(self):
-        """Connect to WebSocket and start listening"""
+        """Connect to WebSocket"""
         log.info("Connecting to Helius at %s", self.ws_url)
         
         async with websockets.connect(
             self.ws_url, 
             ssl=self.ssl_context,
-            ping_interval=None,  # Handle pings manually
+            ping_interval=None,  # Handle pings
             ping_timeout=None,
             close_timeout=10
         ) as ws:
             
-            # Initialize heartbeat tracking
+            # Initialize heartbeat
             self.last_pong = asyncio.get_event_loop().time()
             
-            # Start heartbeat task
+            # Start heartbeat
             self.heartbeat_task = asyncio.create_task(self.heartbeat(ws))
             
             try:
-                # Subscribe to logs that mention lumedot wallet
+                # Subscribe to lumedot wallet
                 sub_req = {
                     "jsonrpc": "2.0",
                     "id": 1,
@@ -149,18 +149,16 @@ class HeliusListener:
     async def handle_signature(self, signature: str, logs_list: list[str]):
         log.debug("Handling signature %s", signature)
         try:
-            # ── 1) Try to extract memo from Helius logs
+            # Extract memo
             memo_text = None
             for line in logs_list:
                 if line.startswith("Program log: Memo"):
-                    # e.g. Program log: Memo (len 9): "ud:3 pl30"
                     m = re.search(r'"([^"]+)"', line)
                     if m:
                         memo_text = m.group(1)
                         log.debug("Parsed memo from logs: %s", memo_text)
                     break
 
-            # ── 2) If no memo in logs, fetch transaction and parse SPL-Memo instruction
             if not memo_text:
                 def fetch_tx():
                     payload = {
@@ -181,7 +179,7 @@ class HeliusListener:
                     if ix.get("parsed") and ix.get("program") == "spl-memo":
                         memo_text = ix["parsed"]["info"]["memo"]
                         break
-                    # raw Memo program fallback
+                    # raw Memo fallback
                     if ix.get("programId") == "MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr":
                         memo_text = ix.get("data")
                         break
@@ -191,7 +189,7 @@ class HeliusListener:
                 log.warning("Could not find memo for %s, skipping", signature)
                 return
 
-            # ── 3) Fetch balances to compute sol_paid
+            # Fetch balances to compute sol_paid
             def fetch_balances():
                 payload = {
                     "jsonrpc": "2.0",
@@ -226,7 +224,7 @@ class HeliusListener:
             sol_paid = lamports / 1e9
             log.info("Tx %s paid %.6f SOL", signature[:8], sol_paid)
 
-            # ── 4) Parse memo_text (e.g. "ud:3 pl30")
+            # Parse memo_text
             parts = memo_text.split()
             if len(parts) < 2 or not parts[0].startswith("ud:"):
                 log.warning("Unexpected memo format: %s", memo_text)
@@ -234,7 +232,7 @@ class HeliusListener:
             user_id, plan = parts[0].split(":", 1)[1], parts[1]
             log.debug("Parsed user_id=%s plan=%s", user_id, plan)
 
-            # ── 5) Build GraphQL mutation, trusting sol_paid as sol_expected
+            # Build GraphQL mutation, trusting sol_paid as sol_expected
             if plan.startswith("pl"):
                 sol_expected = sol_paid
                 purchase_type = "monthly" if plan == "pl30" else "yearly"
@@ -277,7 +275,7 @@ class HeliusListener:
             if abs(sol_paid - sol_expected) / sol_expected > TOLERANCE:
                 log.warning("Price outside tolerance, forwarding anyway")
 
-            # ── 6) Send to host API
+            # Send to host API
             log.debug("POST %s payload=%s", HOST_API, {"query": mutation})
             def do_post():
                 return requests.post(
